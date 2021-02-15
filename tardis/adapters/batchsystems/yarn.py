@@ -57,9 +57,9 @@ class YarnAdapter(BatchSystemAdapter):
     def __init__(self):
         logger.debug('Initialize Yarn BatchSystemAdapter')
         self.config = Configuration()
-        logger.debug(f'Register Yarn resourcemanager on hostname {self.config.resourcemanager}')
-        logger.debug(f'Register Yarn drones database at {self.config.drones_database}')
-        self.rm = YarnResourceManager(self.config.resourcemanager)
+        logger.debug(f'Register Yarn resourcemanager on hostname {self.config.BatchSystem.resourcemanager}')
+        logger.debug(f'Register Yarn drones database at {self.config.BatchSystem.drones_database}')
+        self.rm = YarnResourceManager(self.config.BatchSystem.resourcemanager)
 
     async def disintegrate_machine(self, drone_uuid: str) -> None:
         """
@@ -82,7 +82,7 @@ class YarnAdapter(BatchSystemAdapter):
         :type drone_uuid: str
         :return: None
         """
-        sqlconn = sqlite3.connect(self.config.drones_database)
+        sqlconn = sqlite3.connect(self.config.BatchSystem.drones_database)
         cursor = sqlconn.cursor()
 
         drain_query = """UPDATE yarn_drones
@@ -129,7 +129,7 @@ class YarnAdapter(BatchSystemAdapter):
         :rtype: MachineStatus
         """
         logger.debug(f'Get status for machine {drone_uuid}')
-        sqlconn = sqlite3.connect(self.config.drones_database)
+        sqlconn = sqlite3.connect(self.config.BatchSystem.drones_database)
         with sqlconn:
             cursor = sqlconn.cursor()
             status_query = "SELECT status FROM yarn_drones WHERE drone_uuid = ?"
