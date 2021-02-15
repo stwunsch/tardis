@@ -109,9 +109,9 @@ class YarnAdapter(BatchSystemAdapter):
         Get the allocation of the YARN NodeManager, which is defined as maximum
         of the ratios of requested over total resources (CPU or Memory).
         """
-        allocated_resources = rm.get_allocated_resources(nodes[0])
+        allocated_resources = self.rm.get_allocated_resources(self.rm.nodes[0])
         allocated_vcores = allocated_resources['cores']
-        used_vcores = rm.get_used_vcores(nodes[0])
+        used_vcores = self.rm.get_used_vcores(self.rm.nodes[0])
         utilisation = used_vcores / allocated_vcores
         logger.debug(f'Get allocation for machine {drone_uuid} (equal to utilisation): {utilisation}')
         return utilisation
@@ -157,9 +157,9 @@ class YarnAdapter(BatchSystemAdapter):
         :return: The utilisation of a worker node as described above.
         :rtype: float
         """
-        allocated_resources = rm.get_allocated_resources(nodes[0])
+        allocated_resources = self.rm.get_allocated_resources(self.rm.nodes[0])
         allocated_vcores = allocated_resources['cores']
-        used_vcores = rm.get_used_vcores(nodes[0])
+        used_vcores = self.rm.get_used_vcores(self.rm.nodes[0])
         utilisation = used_vcores / allocated_vcores
         logger.debug(f'Get utilisation for machine {drone_uuid}: {utilisation}')
         return utilisation
