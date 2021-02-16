@@ -98,7 +98,7 @@ class Drone(Pool):
                 )
                 self._demand = 0
                 return
-            await asyncio.sleep(60)
+            await asyncio.sleep(10)
 
     def register_plugins(self, observer: Union[List[Plugin], Plugin]) -> None:
         self._plugins.append(observer)
