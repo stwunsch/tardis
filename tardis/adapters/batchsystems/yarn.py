@@ -109,12 +109,7 @@ class YarnAdapter(BatchSystemAdapter):
         Get the allocation of the YARN NodeManager, which is defined as maximum
         of the ratios of requested over total resources (CPU or Memory).
         """
-        allocated_resources = self.rm.get_allocated_resources(self.rm.nodes[0])
-        allocated_vcores = allocated_resources['cores']
-        used_vcores = self.rm.get_used_vcores(self.rm.nodes[0])
-        utilisation = used_vcores / allocated_vcores
-        logger.debug(f'Get allocation for machine {drone_uuid} (equal to utilisation): {utilisation}')
-        return utilisation
+        return await self.get_utilisation(drone_uuid)
 
     async def get_machine_status(self, drone_uuid: str) -> MachineStatus:
         """
@@ -157,11 +152,28 @@ class YarnAdapter(BatchSystemAdapter):
         :return: The utilisation of a worker node as described above.
         :rtype: float
         """
-        allocated_resources = self.rm.get_allocated_resources(self.rm.nodes[0])
+        # Find nodemanager responsible for this drone
+        sqlconn = sqlite3.connect(self.config.BatchSystem.drones_database)
+        with sqlconn:
+            cursor = sqlconn.cursor()
+            status_query = "SELECT nm FROM yarn_drones WHERE drone_uuid = ?"
+            results = cursor.execute(status_query, (drone_uuid, )).fetchall()
+        try:
+            drone_nm = results[0][0] # One of the possible machine status strings
+        except:
+            raise Exception(f'Failed to get nodemanager for drone {drone_uuid} from database')
+        sqlconn.close()
+
+        rm_nodes = self.rm.nodes
+        if not drone_nm in rm_nodes:
+            raise Exception(f'Nodemanager of the drone in the database {drone_nm} is not in the list of available Yarn nodemanagers {rm_nodes}')
+
+        # Get utilisation of this nodemanager
+        allocated_resources = self.rm.get_allocated_resources(drone_nm)
         allocated_vcores = allocated_resources['cores']
-        used_vcores = self.rm.get_used_vcores(self.rm.nodes[0])
+        used_vcores = self.rm.get_used_vcores(drone_nm)
         utilisation = used_vcores / allocated_vcores
-        logger.debug(f'Get utilisation for machine {drone_uuid}: {utilisation}')
+        logger.debug(f'Get utilisation for nodemanager {drone_nm} of drone {drone_uuid}: {utilisation}')
         return utilisation
 
     @property
