@@ -141,10 +141,10 @@ class YarnAdapter(BatchSystemAdapter):
         with sqlconn:
             cursor = sqlconn.cursor()
             status_query = "SELECT nm FROM yarn_drones WHERE drone_uuid = ?"
-            results = cursor.execute(status_query, (drone_uuid, )).fetchall()
+            drone_nm = cursor.execute(status_query, (drone_uuid, )).fetchall()
         try:
             # One of the possible machine status strings
-            drone_nm = results[0][0]
+            drone_nm = drone_nm[0][0]
         except:
             raise Exception(
                 f'Failed to get nodemanager for drone {drone_uuid} from database')
@@ -157,9 +157,11 @@ class YarnAdapter(BatchSystemAdapter):
 
         # Get allocation of this nodemanager
         drone_nm_dict = self.rm.get_node_dict(drone_nm)
-        total_vcores = drone_nm_dict['totalResource']['vCores']
         used_vcores = drone_nm_dict['usedVirtualCores']
-        allocation = used_vcores / total_vcores
+        free_vcores = drone_nm_dict['availableVirtualCores']
+        if used_vcores + free_vcores == 0:
+            raise Exception(f'Nodemanager of the drone in the database {drone_nm} has zero free and used cores')
+        allocation = used_vcores / (used_vcores + free_vcores)
 
         logger.debug(
             f'Get allocation for nodemanager {drone_nm} of drone {drone_uuid}: {allocation}')
@@ -213,13 +215,25 @@ class YarnAdapter(BatchSystemAdapter):
         with sqlconn:
             cursor = sqlconn.cursor()
             status_query = "SELECT nm FROM yarn_drones WHERE drone_uuid = ?"
-            results = cursor.execute(status_query, (drone_uuid, )).fetchall()
+            drone_nm = cursor.execute(status_query, (drone_uuid, )).fetchall()
         try:
             # One of the possible machine status strings
-            drone_nm = results[0][0]
+            drone_nm = drone_nm[0][0]
         except:
             raise Exception(
                 f'Failed to get nodemanager for drone {drone_uuid} from database')
+
+        with sqlconn:
+            cursor = sqlconn.cursor()
+            status_query = "SELECT drone_uuid FROM yarn_drones WHERE nm = ? AND status = 'Available'"
+            drones = cursor.execute(status_query, (drone_nm, )).fetchall()
+        try:
+            # Sorted list of all drones
+            drones = list(sorted(d[0] for d in drones))
+        except:
+            raise Exception(
+                f'Failed to get drones for nodemanager {drone_nm} from database')
+
         sqlconn.close()
 
         rm_nodes = self.rm.nodes
@@ -227,13 +241,65 @@ class YarnAdapter(BatchSystemAdapter):
             raise Exception(
                 f'Nodemanager of the drone in the database {drone_nm} is not in the list of available Yarn nodemanagers {rm_nodes}')
 
-        # Get cpu usage of this nodemanager
-        nodemanager_db = self.config.BatchSystem.nodemanager_database
-        nm_metrics = self.rm.get_node_resources(drone_nm, nodemanager_db)
-        utilisation = float(nm_metrics['containersCPUUsage']) / float(nm_metrics['cores'])
+        # Get allocation of this nodemanager
+        drone_nm_dict = self.rm.get_node_dict(drone_nm)
+        used_vcores = drone_nm_dict['usedVirtualCores']
+        free_vcores = drone_nm_dict['availableVirtualCores']
+        if used_vcores + free_vcores == 0:
+            raise Exception(f'Nodemanager of the drone in the database {drone_nm} has zero free and used cores')
+
+        '''
+        # NOTE: We have to subtract here the one always running core to keep the NM alive
+        # if we use any vcores. This additional part can either be part of the used vcores
+        # or the free vcores.
+        effective_used_vcores = used_vcores if used_vcores == 0 else used_vcores - 1
+        effective_free_vcores = free_vcores if used_vcores > 0 else free_vcores - 1
+        total_cores = effective_used_vcores + effective_free_vcores
+        if total_cores == 0:
+            utilisation = 1.0 # no core is used but there are also no cores, perfect utilisation!
+        else:
+            utilisation = effective_used_vcores / total_cores
+        '''
+
+        '''
+        # This doesn't work because you may remove a core from a NM, which is still running
+        # and we cannot distinguish or steer the disintegration more fine-grained.
+
+        # Flag the node as being used if there are at least two used vcores on this NM
+        # We ask for at least two because one core is there anyway due to the minimum
+        # requirement to keep the NM alive.
+        # We have to subtract one core from the used_vcores because this is required to
+        # keep the NM running and doesn't count to the condor utilisation.
+        utilisation = (used_vcores - 1) / (used_vcores + free_vcores - 1) if used_vcores > 1 else 0.0
+        '''
+
+        '''
+        # This works but removes just drones on an empty NM
+
+        # Flag the node as being used if there are at least two used vcores on this NM
+        # We ask for at least two because one core is there anyway due to the minimum
+        # requirement to keep the NM alive.
+        utilisation = 1.0 if used_vcores > 1 else 0.0
+        '''
+
+        # NOTE: Do we have to account for the always-on vcore of the NM?
+        # Is it correct like this?
+        used_vcores = used_vcores - 1 if used_vcores > 1 else 0
+
+        if not drone_uuid in drones:
+            raise Exception(f'Cannot find drone {drone_uuid} in drones {drones}')
+
+        logger.debug(f'Drones for nodemanager {drone_nm} to get utilisation of drone {drone_uuid}: {drones}')
+        logger.debug(f'Used vcores for nodemanager {drone_nm} of drone {drone_uuid}: {used_vcores}')
+
+        idx = drones.index(drone_uuid) + 1 # 1-based indexing on sorted list of drones
+        # Keep the first 'used_vcores' number of drones and remove the rest
+        utilisation = 1 if idx <= used_vcores else 0
+        logger.debug(f'Nodemanager {drone_nm} and drone {drone_uuid} (idx, used vcores, utilisation): {idx}, {used_vcores}, {utilisation}')
 
         logger.debug(
             f'Get utilisation for nodemanager {drone_nm} of drone {drone_uuid}: {utilisation}')
+
         return utilisation
 
     @property
